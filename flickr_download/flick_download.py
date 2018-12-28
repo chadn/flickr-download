@@ -111,6 +111,7 @@ def download_list(pset, photos_title, get_filename, size_label, skip_download=Fa
     @param skip_download: bool, do not actually download the photo
     """
     with Timer('getPhotos()'):
+        logging.debug('download_list() start getPhotos() on pset={}'.format(pset))
         photos = pset.getPhotos()
     pagenum = 2
     while True:
@@ -118,6 +119,7 @@ def download_list(pset, photos_title, get_filename, size_label, skip_download=Fa
             if pagenum > photos.info.pages:
                 break
             with Timer('getPhotos()'):
+                logging.debug('download_list() photoCount={}, getting page={} on pset={}'.format( len(photos), pagenum, pset))
                 page = pset.getPhotos(page=pagenum)
             photos.extend(page)
             pagenum += 1
@@ -133,6 +135,7 @@ def download_list(pset, photos_title, get_filename, size_label, skip_download=Fa
     if not os.path.exists(dirname):
         os.mkdir(dirname)
 
+    logging.debug('download_list() downloading {} individual photos '.format( len(photos) ))
     for photo in photos:
         do_download_photo(dirname, pset, photo, size_label, suffix, get_filename, skip_download)
 
@@ -262,6 +265,8 @@ def download_user_photos(username, get_filename, size_label, skip_download=False
     @param skip_download: bool, do not actually download the photo
     """
     user = find_user(username)
+    logging.debug('download_user_photos user={}, username={}'.format(user, username))
+
     download_list(user, username, get_filename, size_label, skip_download)
 
 
@@ -271,8 +276,10 @@ def print_sets(username):
 
     @param username: str,
     """
+
     with Timer('find_user()'):
         user = find_user(username)
+        logging.debug('print_sets() username={}, user={}'.format(username, user))
     with Timer('getPhotosets()'):
         photosets = user.getPhotosets()
     for photo in photosets:
@@ -328,6 +335,11 @@ def main():
                         help='List naming modes')
     parser.add_argument('-o', '--skip_download', action='store_true',
                         help='Skip the actual download of the photo')
+    parser.add_argument('--debug', action='store_true',
+                        help='Output debug info on progress, etc.')
+    if parser.parse_args().debug:
+        logging.basicConfig(level=logging.DEBUG)
+
     parser.set_defaults(**_load_defaults())
 
     args = parser.parse_args()

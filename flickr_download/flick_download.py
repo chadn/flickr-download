@@ -16,6 +16,7 @@ import os
 import sys
 import time
 import json
+import pprint
 
 import flickr_api as Flickr
 from flickr_api.flickrerrors import FlickrError, FlickrAPIError
@@ -89,22 +90,20 @@ def _load_defaults():
     return {}
 
 
-def download_set(set_id, get_filename, size_label=None, skip_download=False, save_json=False):
+def download_set(set_id, get_filename, size_label=None, args={}):
     """
     Download the set with 'set_id' to the current directory.
 
     @param set_id: str, id of the photo set
     @param get_filename: Function, function that creates a filename for the photo
     @param size_label: str|None, size to download (or None for largest available)
-    @param skip_download: bool, do not actually download the photo
-    @param save_json: bool, save photo info as .json file
+    @param args: Dictionary, options from command line
     """
     pset = Flickr.Photoset(id=set_id)
-    download_list(pset, pset.title, get_filename, size_label, skip_download, save_json)
+    download_list(pset, pset.title, get_filename, size_label, args)
 
 
-def download_list(pset, photos_title, get_filename, size_label, skip_download=False,
-                  save_json=False):
+def download_list(pset, photos_title, get_filename, size_label, args):
     """
     Download all the photos in the given photo list
 
@@ -112,26 +111,11 @@ def download_list(pset, photos_title, get_filename, size_label, skip_download=Fa
     @param photos_title: str, name of the photo list
     @param get_filename: Function, function that creates a filename for the photo
     @param size_label: str|None, size to download (or None for largest available)
-    @param skip_download: bool, do not actually download the photo
-    @param save_json: bool, save photo info as .json file
+    @param args: Dictionary, options from command line
     """
-    with Timer('getPhotos()'):
-        logging.debug('download_list() start getPhotos() on pset={}'.format(pset))
-        photos = pset.getPhotos()
-    pagenum = 2
-    while True:
-        try:
-            if pagenum > photos.info.pages:
-                break
-            with Timer('getPhotos()'):
-                logging.debug('download_list() photoCount={}, getting page={} on pset={}'.format( len(photos), pagenum, pset))
-                page = pset.getPhotos(page=pagenum)
-            photos.extend(page)
-            pagenum += 1
-        except FlickrAPIError as ex:
-            if ex.code == 1:
-                break
-            raise
+
+    photos = _getPhotos(pset);
+    logging.debug('download_list() downloading {} individual photos '.format( len(photos) ))
 
     suffix = " ({})".format(size_label) if size_label else ""
 
@@ -140,14 +124,54 @@ def download_list(pset, photos_title, get_filename, size_label, skip_download=Fa
     if not os.path.exists(dirname):
         os.mkdir(dirname)
 
-    logging.debug('download_list() downloading {} individual photos '.format( len(photos) ))
     for photo in photos:
-        do_download_photo(dirname, pset, photo, size_label, suffix, get_filename, skip_download,
-                          save_json)
+        do_download_photo(dirname, pset, photo, size_label, suffix, get_filename, args)
 
 
-def do_download_photo(dirname, pset, photo, size_label, suffix, get_filename, skip_download=False,
-                      save_json=False):
+def _getPhotos(pset, fn=None):
+    """
+    Get the list of photos for all photos for the given user or photo list
+
+    @param pset: User or FlickrList, photo list to download
+    """
+
+    if fn:
+        jsonFile = open(fn, "w")
+        logging.debug('_getPhotos() writing photo ids to {}'.format(fn))
+
+    with Timer('getPhotos()'):
+        logging.debug('_getPhotos() start getPhotos() on pset={}'.format(pset))
+        photos = pset.getPhotos()
+        if fn:
+            for photo in photos:
+                jsonFile.write(photo.id +"\n")
+
+
+    pagenum = 2
+    while True:
+        try:
+            if pagenum > photos.info.pages:
+                break
+            with Timer('getPhotos()'):
+                logging.debug('_getPhotos() photoCount={}, getting page={} on pset={}'.format( len(photos), pagenum, pset))
+                page = pset.getPhotos(page=pagenum)
+            if fn:
+                for photo in page:
+                    jsonFile.write(photo.id +"\n")
+            photos.extend(page)
+            pagenum += 1
+        except FlickrAPIError as ex:
+            if ex.code == 1:
+                break
+            raise
+
+    if fn:
+        jsonFile.close()
+
+    return photos
+
+
+def do_download_photo(dirname, pset, photo, size_label, suffix, get_filename, args={}):
     """
     Handle the downloading of a single photo
 
@@ -157,8 +181,9 @@ def do_download_photo(dirname, pset, photo, size_label, suffix, get_filename, sk
     @param size_label: str|None, size to download (or None for largest available)
     @param suffix: str|None, optional suffix to add to file name
     @param get_filename: Function, function that creates a filename for the photo
-    @param skip_download: bool, do not actually download the photo
-    @param save_json: bool, save photo info as .json file
+    @param args: dict,  from command line arguments
+    @param args.skip_download: bool, do not actually download the photo
+    @param args.save_json: bool, save photo info as .json file
     """
     fname = get_full_path(dirname, get_filename(pset, photo, suffix))
     jsonFname = fname + '.json'
@@ -171,7 +196,7 @@ def do_download_photo(dirname, pset, photo, size_label, suffix, get_filename, sk
         print('Skipping {0}, because cannot get info from Flickr'.format(fname))
         return
 
-    if save_json:
+    if args.save_json:
         try:
             print('Saving photo info: {}'.format(jsonFname))
             jsonFile = open(jsonFname, "w")
@@ -212,7 +237,7 @@ def do_download_photo(dirname, pset, photo, size_label, suffix, get_filename, sk
         return
 
     print('Saving: {} ({})'.format(fname, get_photo_page(pInfo)))
-    if skip_download:
+    if args.skip_download:
         return
 
     try:
@@ -231,20 +256,38 @@ def do_download_photo(dirname, pset, photo, size_label, suffix, get_filename, sk
     os.utime(fname, (taken_unix, taken_unix))
 
 
-def download_photo(photo_id, get_filename, size_label, skip_download=False, save_json=False):
+def download_photo(photo_id, get_filename, size_label, args={}):
     """
     Download one photo
 
     @param photo_id: str, id of the photo
     @param get_filename: Function, function that creates a filename for the photo
     @param size_label: str|None, size to download (or None for largest available)
-    @param skip_download: bool, do not actually download the photo
-    @param save_json: bool, save photo info as .json file
+    @param args: Dictionary, options from command line
     """
     photo = Flickr.Photo(id=photo_id)
     suffix = " ({})".format(size_label) if size_label else ""
-    do_download_photo(".", None, photo, size_label, suffix, get_filename, skip_download, save_json)
+    do_download_photo(".", None, photo, size_label, suffix, get_filename, args)
 
+
+def download_photos(photo_list_fn, get_filename, size_label, args={}):
+    """
+    Download photos that correspond to ids from input 
+
+    @param photo_list_fn: str, filename of file containing ids of photos
+    @param get_filename: Function, function that creates a filename for the photo
+    @param size_label: str|None, size to download (or None for largest available)
+    @param args: Dictionary, options from command line
+    """
+    photo_ids = []
+
+    with open(photo_list_fn, 'r') as fh:  
+        photo_ids = fh.read().splitlines() 
+    fh.close()
+
+    for photo_id in photo_ids:
+        #logging.debug("Reading photo_id '{}'".format(photo_id))
+        download_photo(photo_id, get_filename, size_label, args)
 
 def find_user(userid):
     if userid.startswith("https://") or \
@@ -255,40 +298,58 @@ def find_user(userid):
         user = Flickr.Person.findByEmail(userid)
     else:
         user = Flickr.Person.findByUserName(userid)
+    logging.debug('find_user() {}'.format(user))
     return user
 
 
-def download_user(username, get_filename, size_label, skip_download=False, save_json=False):
+def download_user(username, get_filename, size_label, args={}):
     """
     Download all the sets owned by the given user.
 
     @param username: str, username
     @param get_filename: Function, function that creates a filename for the photo
     @param size_label: str|None, size to download (or None for largest available)
-    @param skip_download: bool, do not actually download the photo
-    @param save_json: bool, save photo info as .json file
+    @param args: Dictionary, options from command line
     """
     user = find_user(username)
     with Timer('getPhotosets()'):
         photosets = user.getPhotosets()
     for photoset in photosets:
-        download_set(photoset.id, get_filename, size_label, skip_download, save_json)
+        download_set(photoset.id, get_filename, size_label, args)
 
 
-def download_user_photos(username, get_filename, size_label, skip_download=False, save_json=False):
+def download_user_photo_list(username):
     """
     Download all the photos owned by the given user.
 
     @param username: str, username
     @param get_filename: Function, function that creates a filename for the photo
     @param size_label: str|None, size to download (or None for largest available)
-    @param skip_download: bool, do not actually download the photo
-    @param save_json: bool, save photo info as .json file
+    """
+    user = find_user(username)
+    logging.debug('download_user_photo_list user={}, username={}'.format(user, username))
+    
+    jsonFname = 'photoIds-{}.txt'.format(username)
+
+    photos = _getPhotos(user, jsonFname);
+    #_save_json(jsonFname, photos)
+
+    logging.debug('download_user_photo_list() {} photos, saved as {}'.format( 
+        len(photos), jsonFname ))
+
+
+def download_user_photos(username, get_filename, size_label, args):
+    """
+    Download all the photos owned by the given user.
+
+    @param username: str, username
+    @param get_filename: Function, function that creates a filename for the photo
+    @param size_label: str|None, size to download (or None for largest available)
     """
     user = find_user(username)
     logging.debug('download_user_photos user={}, username={}'.format(user, username))
 
-    download_list(user, username, get_filename, size_label, skip_download, save_json)
+    download_list(user, username, get_filename, size_label, args)
 
 
 def print_sets(username):
@@ -361,6 +422,10 @@ def main():
                         help='Download the given set')
     parser.add_argument('-p', '--download_user_photos', type=str, metavar='USERNAME',
                         help='Download all photos for a given user')
+    parser.add_argument('--download_user_photo_list', type=str, metavar='USERNAME',
+                        help='Download just list of all photos for a given user')
+    parser.add_argument('--photo_list_file', type=str,
+                        help='file containing photo ids to download, one id per line')
     parser.add_argument('-u', '--download_user', type=str, metavar='USERNAME',
                         help='Download all sets for a given user')
     parser.add_argument('-i', '--download_photo', type=str, metavar='PHOTO_ID',
@@ -375,10 +440,13 @@ def main():
                         help='Skip the actual download of the photo')
     parser.add_argument('-j', '--save_json', action='store_true',
                         help='Save photo info like description and tags, one .json file per photo')
+    parser.add_argument('--content_dir', type=str,
+                        help='directory where all content exists, for reading and writing files')
     parser.add_argument('--debug', action='store_true',
                         help='Output debug info on progress, etc.')
     if parser.parse_args().debug:
         logging.basicConfig(level=logging.DEBUG)
+        #Flickr.logger.basicConfig(level=logging.DEBUG)
 
     parser.set_defaults(**_load_defaults())
 
@@ -406,6 +474,11 @@ def main():
     if default_encoding != 'utf-8':
         sys.stdout = codecs.getwriter(default_encoding)(sys.stdout, 'replace')
 
+    if args.content_dir:
+        #print("Previous Working Directory " , os.getcwd())
+        os.chdir(args.content_dir)
+        print("Will read and write files using this directory: ", os.getcwd())
+
     if args.list:
         print_sets(args.list)
         return 0
@@ -416,22 +489,25 @@ def main():
     if args.save_json:
         print('Will save photo info in .json file with same basename as photo')
 
-    if args.download or args.download_user or args.download_user_photos or args.download_photo:
+    if (args.download or args.download_user or args.download_user_photos or args.download_photo
+        or args.download_user_photo_list or args.photo_list_file):
         try:
             with Timer('total run'):
                 get_filename = get_filename_handler(args.naming)
                 if args.download:
-                    download_set(args.download, get_filename, args.quality, args.skip_download,
-                                 args.save_json)
+                    download_set(args.download, get_filename, args.quality, args)
                 elif args.download_user:
-                    download_user(args.download_user, get_filename, args.quality,
-                                  args.skip_download, args.save_json)
+                    download_user(args.download_user, get_filename, args.quality, args)
                 elif args.download_photo:
-                    download_photo(args.download_photo, get_filename, args.quality,
-                                   args.skip_download, args.save_json)
+                    download_photo(args.download_photo, get_filename, args.quality, args)
+                elif args.photo_list_file:
+                    download_photos(args.photo_list_file, get_filename, args.quality, args)
+                elif args.download_user_photo_list:
+                    download_user_photo_list(args.download_user_photo_list)
+                elif args.download_user_photos:
+                    download_user_photos(args.download_user_photos, get_filename, args.quality, args)
                 else:
-                    download_user_photos(args.download_user_photos, get_filename, args.quality,
-                                         args.skip_download, args.save_json)
+                    print('ERROR: Fix args\n')
         except KeyboardInterrupt:
             print('Forcefully aborting. Last photo download might be partial :(', file=sys.stderr)
         return 0

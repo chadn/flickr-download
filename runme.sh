@@ -28,6 +28,11 @@ updateTodo() {
 }
 
 main() {
+  if [ ! -f "$CONTENT_DIR/sets-$FLICKR_USERNAME.json" ]; then
+    # only fetch if have not done already
+    python flickr_download/flick_download.py --debug --save_json --list $FLICKR_USERNAME
+  fi
+
   if [ ! -f "$CONTENT_DIR/photoIds-todo.txt" ]; then
     # only fetch list of photos if have not done already
     getTodo

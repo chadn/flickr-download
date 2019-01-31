@@ -60,9 +60,29 @@ will fetch all your sets including private restricted sets.
 * [Python Flickr API](https://github.com/alexis-mignon/python-flickr-api/)
 * [PyYAML](http://pyyaml.org/)
 
-# Optional arguments
+# Usage and Optional Arguments
 
 ```
+usage: flick_download.py [-h] [-k API_KEY] [-s API_SECRET] [-t] [-l USER]
+                         [-d SET_ID] [-p USERNAME]
+                         [--download_user_photo_list USERNAME]
+                         [--photo_list_file PHOTO_LIST_FILE] [-u USERNAME]
+                         [-i PHOTO_ID] [-q SIZE_LABEL] [-n NAMING_MODE] [-m]
+                         [-o] [-j] [--content_dir CONTENT_DIR] [--debug]
+
+Downloads one or more Flickr photo sets.
+
+To use it you need to get your own Flickr API key here:
+https://www.flickr.com/services/api/misc.api_keys.html
+
+For more information see:
+https://github.com/beaufour/flickr-download
+
+You can store argument defaults in ~/.flickr_download. API keys for example:
+  api_key: .....
+  api_secret: ...
+
+optional arguments:
   -h, --help            show this help message and exit
   -k API_KEY, --api_key API_KEY
                         Flickr API key
@@ -74,6 +94,10 @@ will fetch all your sets including private restricted sets.
                         Download the given set
   -p USERNAME, --download_user_photos USERNAME
                         Download all photos for a given user
+  --download_user_photo_list USERNAME
+                        Download just list of all photos for a given user
+  --photo_list_file PHOTO_LIST_FILE
+                        file containing photo ids to download, one id per line
   -u USERNAME, --download_user USERNAME
                         Download all sets for a given user
   -i PHOTO_ID, --download_photo PHOTO_ID
@@ -84,4 +108,28 @@ will fetch all your sets including private restricted sets.
                         Photo naming mode
   -m, --list_naming     List naming modes
   -o, --skip_download   Skip the actual download of the photo
+  -j, --save_json       Save sets or photo info like description and tags, one .json file per photo
+  --content_dir CONTENT_DIR
+                        directory where all content exists, for reading and writing files
+  --debug               Output debug info on progress, etc.
+
+examples:
+  list all sets for a user:
+  > flickr_download/flick_download.py -k <api_key> -s <api_secret> -l beaufour
+
+  download a given set:
+  > flickr_download/flick_download.py -k <api_key> -s <api_secret> -d 72157622764287329
+
+  download a given set, keeping duplicate names:
+  > flickr_download/flick_download.py -k <api_key> -s <api_secret> -d 72157622764287329 -n title_increment
 ```
+
+# Handle Users with Thousands of Photos 
+
+Created a bash script, runme.sh, which will keep calling python until all photos are downloaded from flickr.
+This file is meant to be edited and inspected, works on OSX and linux, not tested on windows.
+
+Some of the many things this does is
+* Creates a log file with timestamped entries of progress.  Makes it easy to start as a background process, `runme.sh &`, and then just view the log file for progress
+* You can specify directory to save all photos and photo meta data as json.
+

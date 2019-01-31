@@ -130,9 +130,45 @@ def download_list(pset, photos_title, get_filename, size_label, args):
 
 def _getPhotos(pset, fn=None):
     """
+    TODO: need to test this
     Get the list of photos for all photos for the given user or photo list
 
     @param pset: User or FlickrList, photo list to download
+    @param fn: filename of file that should contain photo ids
+    """
+    if fn:
+        jsonFile = open(fn, "w")
+        logging.debug('_getPhotos() writing photo ids to {}'.format(fn))
+    photos = []
+    pagenum = 1
+    while True:
+        try:
+            with Timer('getPhotos()'):
+                logging.debug('_getPhotos() photoCount={}, getting page={} on pset={}'.format( len(photos), pagenum, pset))
+                page = pset.getPhotos(page=pagenum)
+            if fn:
+                for photo in page:
+                    jsonFile.write(photo.id +"\n")
+            photos.extend(page)
+            pagenum += 1
+            if pagenum > page.info.pages:
+                break
+        except FlickrAPIError as ex:
+            if ex.code == 1:
+                break
+            raise
+    if fn:
+        jsonFile.close()
+
+    return photos
+
+
+def _getPhotosORIG_DELME(pset, fn=None):
+    """
+    Get the list of photos for all photos for the given user or photo list
+
+    @param pset: User or FlickrList, photo list to download
+    @param fn: filename of file that should contain photo ids
     """
 
     if fn:
@@ -145,7 +181,6 @@ def _getPhotos(pset, fn=None):
         if fn:
             for photo in photos:
                 jsonFile.write(photo.id +"\n")
-
 
     pagenum = 2
     while True:
@@ -164,7 +199,6 @@ def _getPhotos(pset, fn=None):
             if ex.code == 1:
                 break
             raise
-
     if fn:
         jsonFile.close()
 
@@ -330,7 +364,6 @@ def download_user_photo_list(username):
     logging.debug('download_user_photo_list user={}, username={}'.format(user, username))
     
     jsonFname = 'photoIds-{}.txt'.format(username)
-
     photos = _getPhotos(user, jsonFname);
     #_save_json(jsonFname, photos)
 
@@ -352,20 +385,60 @@ def download_user_photos(username, get_filename, size_label, args):
     download_list(user, username, get_filename, size_label, args)
 
 
-def print_sets(username):
+def print_sets(username, save_json):
     """
-    Print all sets for the given user
+    Print all sets for the given user, similar to  web API. 
+    But if save_json is true, then json will also contain photoIds of each set as well.
+    https://www.flickr.com/services/api/explore/flickr.photosets.getList
+    https://www.flickr.com/services/api/explore/flickr.collections.getTree
 
     @param username: str,
+    @param save_json: boolean,
     """
-
     with Timer('find_user()'):
         user = find_user(username)
         logging.debug('print_sets() username={}, user={}'.format(username, user))
     with Timer('getPhotosets()'):
         photosets = user.getPhotosets()
-    for photo in photosets:
-        print('{0} - {1}'.format(photo.id, photo.title))
+    if not save_json:
+        for photoset in photosets:
+            print('{0} - {1}'.format(photoset.id, photoset.title))
+        return
+
+    #_save_json("photosets_raw-{}.json".format(username), photosets)
+    psets = []
+    for ps in photosets:
+        # copy photoset so we can edit, adding list of photoIds
+        try:
+            copyPhotoset = json.loads(json.dumps(ps, default=serialize_json))
+        except Exception as e:
+            logging.debug('print_sets() trouble copying photoset={} {}'.format(ps.id,ps.title))
+            copyPhotoset = {'id':ps.id, 'title':ps.title, 'description':ps.description}
+        logging.debug('print_sets() getting photoIds for photoset={} {}'.format(ps.id,ps.title))
+        copyPhotoset['photoIds'] = [p.id for p in ps.getPhotos()] 
+        psets.append(copyPhotoset)
+    _save_json("sets-{}.json".format(username), psets)
+
+
+def _save_json(fn, obj):
+    """
+    Save object or dictionary to file as JSON object (string).
+
+    @param fn: str, filename
+    @param obj: object, what to save
+    """
+    try:
+        jsonStr = json.dumps(obj, default=serialize_json, indent=2, sort_keys=True)
+    except Exception:
+        print("Trouble converting as JSON:", sys.exc_info()[0])
+    try:
+        jsonFile = open(fn, "w")
+        jsonFile.write(jsonStr)
+        jsonFile.close()
+    except Exception:
+        print('Trouble Saving as JSON: {}'.format(fn), sys.exc_info()[0])
+
+    logging.debug('_save_json() wrote to {}'.format(fn))
 
 
 def serialize_json(obj):
@@ -439,7 +512,7 @@ def main():
     parser.add_argument('-o', '--skip_download', action='store_true',
                         help='Skip the actual download of the photo')
     parser.add_argument('-j', '--save_json', action='store_true',
-                        help='Save photo info like description and tags, one .json file per photo')
+                        help='Save sets or photo info like description and tags, one .json file per photo')
     parser.add_argument('--content_dir', type=str,
                         help='directory where all content exists, for reading and writing files')
     parser.add_argument('--debug', action='store_true',
@@ -480,14 +553,14 @@ def main():
         print("Will read and write files using this directory: ", os.getcwd())
 
     if args.list:
-        print_sets(args.list)
+        print_sets(args.list, args.save_json)
         return 0
 
     if args.skip_download:
         print('Will skip actual downloading of files')
 
     if args.save_json:
-        print('Will save photo info in .json file with same basename as photo')
+        print('Will create .json files to contain meta data, for photos or sets')
 
     if (args.download or args.download_user or args.download_user_photos or args.download_photo
         or args.download_user_photo_list or args.photo_list_file):
